@@ -116,8 +116,7 @@ class RandomPolicy(RouteController):
         local_targets = {}
         for vehicle in vehicles:
             start_edge = vehicle.current_edge
-            #if(vehicle.vehicle_id == 40):
-            print("{}: current - {}, destination - {}, deadline - {}".format(vehicle.vehicle_id, vehicle.current_edge, vehicle.destination, vehicle.deadline))
+            #print("{}: current - {}, destination - {}, deadline - {}".format(vehicle.vehicle_id, vehicle.current_edge, vehicle.destination, vehicle.deadline))
             '''
             Your algo starts here
             '''
@@ -148,6 +147,15 @@ class RandomPolicy(RouteController):
             '''
             local_targets[vehicle.vehicle_id] = self.compute_local_target(decision_list, vehicle)
 
+        for vehicle in vehicles:
+            current_edge = vehicle.current_edge
+            if current_edge not in self.connection_info.outgoing_edges_dict.keys():
+                continue
+            for direction, outgoing_edge in self.connection_info.outgoing_edges_dict[current_edge].items():
+                print("Current vehicle: {}".format(vehicle.vehicle_id))
+                print("current edge: {} - direction: {} - edge:{}".format(current_edge,direction, outgoing_edge))
+                print("Vehicles on the potential edge: {}".format(self.connection_info.edge_vehicle_count[outgoing_edge]))
+            print("\n")
         return local_targets
 
 
@@ -174,39 +182,13 @@ class NathanPolicy(RouteController):
         :param connection_info: object containing network information
         :return: local_targets: {vehicle_id, target_edge}, where target_edge is a local target to send to TRACI
         """
-
+        
         local_targets = {}
         for vehicle in vehicles:
-            start_edge = vehicle.current_edge
-
-            '''
-            Your algo starts here
-            '''
-            decision_list = []
-
-            i = 0
-            while i < 10:  # choose the number of decisions to make in advanced; depends on the algorithm and network
-                choice = self.direction_choices[random.randint(0, 5)]  # 6 choices available in total
-
-                # dead end
-                if len(self.connection_info.outgoing_edges_dict[start_edge].keys()) == 0:
-                    break
-
-                # make sure to check if it's a valid edge
-                if choice in self.connection_info.outgoing_edges_dict[start_edge].keys():
-                    decision_list.append(choice)
-                    start_edge = self.connection_info.outgoing_edges_dict[start_edge][choice]
-
-                    if i > 0:
-                        if decision_list[i-1] == decision_list[i] and decision_list[i] == 't':
-                            # stuck in a turnaround loop, let TRACI remove vehicle
-                            break
-
-                    i += 1
-
-            '''
-            Your algo ends here
-            '''
-            local_targets[vehicle.vehicle_id] = self.compute_local_target(decision_list, vehicle)
+            current_edge = vehicle.current_edge
+            if current_edge not in connection_info.out_going_edges_dict.keys():
+                continue
+            for direction, outgoing_edge in connection_info.out_going_edges_dict[current_edge].items():
+                print("direction: {} - edge:{}".format(direction, outgoing_edge))
 
         return local_targets    

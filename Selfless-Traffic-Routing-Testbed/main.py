@@ -59,6 +59,11 @@ def test_random_policy(vehicles):
     scheduler = RandomPolicy(init_connection_info)
     run_simulation(scheduler, vehicles)
 
+def test_nathan_policy(vehicles):
+    print("Testing NATHAN's Algorithm Route Controller")
+    scheduler = NathanPolicy(init_connection_info)
+    run_simulation(scheduler, vehicles)
+
 def run_simulation(scheduler, vehicles):
 
     simulation = StrSumo(scheduler, init_connection_info, vehicles)
@@ -88,10 +93,11 @@ if __name__ == "__main__":
     route_file_node = dom.getElementsByTagName('route-files')
     route_file_attr = route_file_node[0].attributes
     route_file = "./configurations/"+route_file_attr['value'].nodeValue
-    vehicles = get_controlled_vehicles(route_file, init_connection_info, 3, 1)
+    vehicles = get_controlled_vehicles(route_file, init_connection_info, 30, 50)
     #print the controlled vehicles generated
     for vid, v in vehicles.items():
         print("id: {}, destination: {}, start time:{}, deadline: {};".format(vid, \
             v.destination, v.start_time, v.deadline))
-    #test_dijkstra_policy(vehicles)
-    test_random_policy(vehicles)
+    test_dijkstra_policy(vehicles)
+    #test_random_policy(vehicles)
+    #test_nathan_policy(vehicles)

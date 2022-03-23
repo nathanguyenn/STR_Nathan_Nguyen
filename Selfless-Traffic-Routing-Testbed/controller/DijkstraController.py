@@ -59,5 +59,20 @@ class DijkstraPolicy(RouteController):
                 decision_list.append(direction)
 
             local_targets[vehicle.vehicle_id] = self.compute_local_target(decision_list, vehicle)
+
+        print("-------------------------------------------------")
+        print("All vehicles: ", end='')
+        for vehicle in vehicles:
+            print("{}".format(vehicle.vehicle_id), end=' ')
+        print('\n')
+        for vehicle in vehicles:
+            current_edge = vehicle.current_edge
+            if current_edge not in self.connection_info.outgoing_edges_dict.keys():
+                continue
+            for direction, outgoing_edge in self.connection_info.outgoing_edges_dict[current_edge].items():
+                print("Current vehicle: {}".format(vehicle.vehicle_id))
+                print("current edge: {} - direction: {} - edge:{}".format(current_edge,direction, outgoing_edge))
+                print("Vehicles on the potential edge: {}".format(self.connection_info.edge_vehicle_count[outgoing_edge]))
+            print("\n")
         return local_targets
     
