@@ -28,6 +28,8 @@ class DijkstraPolicy(RouteController):
             current_distance = self.connection_info.edge_length_dict[current_edge]
             unvisited[current_edge] = current_distance
             path_lists = {edge: [] for edge in self.connection_info.edge_list} #stores shortest path to each edge using directions
+
+            
             while True:
                 if current_edge not in self.connection_info.outgoing_edges_dict.keys():
                     continue
