@@ -3,6 +3,7 @@ from operator import le
 import random
 import os
 import sys
+import copy
 from core.Util import *
 if 'SUMO_HOME' in os.environ:
     tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
@@ -55,14 +56,14 @@ class RouteController(ABC):
         try:
             path_length = 0
             i = 0
-            print("\ninside compute_local_target - vehicle current speed: {}".format(vehicle.current_speed))
+            #print("\ninside compute_local_target - vehicle current speed: {}".format(vehicle.current_speed))
             #the while is used to make sure the vehicle will not assume it arrives the destination beacuse the target edge is too short.
             while path_length <= max(vehicle.current_speed, 20):
                 
                 if current_target_edge == vehicle.destination:
                     break
                 if i >= len(decision_list):
-                    print("Throwing userwarning, i:{} - len(decision_list):{}".format(i, len(decision_list)))
+                    #print("Throwing userwarning, i:{} - len(decision_list):{}".format(i, len(decision_list)))
                     raise UserWarning(
                         "Not enough decisions provided to compute valid local target. TRACI will remove vehicle."
                     )
@@ -74,13 +75,13 @@ class RouteController(ABC):
                         )
                 current_target_edge = self.connection_info.outgoing_edges_dict[current_target_edge][choice]
                 path_length += self.connection_info.edge_length_dict[current_target_edge]
-                print("current_target_edge1:{}".format(current_target_edge))
-                print("Current edge length:{} - path_length:{}".format(self.connection_info.edge_length_dict[current_target_edge], path_length))
+                #print("current_target_edge1:{}".format(current_target_edge))
+                #print("Current edge length:{} - path_length:{}".format(self.connection_info.edge_length_dict[current_target_edge], path_length))
 
                 if i > 0:
                     if decision_list[i - 1] == decision_list[i] and decision_list[i] == 't':
                         # stuck in a turnaround loop, let TRACI remove vehicle
-                        print("current_target_edge2:{}".format(current_target_edge))
+                        #print("current_target_edge2:{}".format(current_target_edge))
                         return current_target_edge
 
                 i += 1
@@ -179,29 +180,17 @@ class NathanPolicy(RouteController):
     
     def make_decisions(self, vehicles, connection_info):
         """
-        through realization i know that all vehicles that come into this parameter NEED to make the decision
-        so all their current_edge are inside outgoing_edges in connection_info
-
-
         :param vehicles: list of vehicles to make routing decisions for
         :param connection_info: object containing network information
         :return: local_targets: {vehicle_id, target_edge}, where target_edge is a local target to send to TRACI
         """
         local_targets = {}
 
-
         if len(vehicles) == 0:
             return local_targets
-        print("\n-------------------------")
-        print("All vehicle present:")
-        vehicle_deadline = {}
-        for vehicle in vehicles:
-            vehicle_deadline[vehicle.vehicle_id] = vehicle.deadline
-            print("id: {} - current edge:{} - deadline:{}".format(vehicle.vehicle_id, vehicle.current_edge, vehicle.deadline))
 
-        # vehicle_deadline = dict(sorted(vehicle_deadline.items(), key=lambda item: item[1]))
 
-        # create dict { edge_id : [vehicle]} to keep track of all the vehicles that on the same edge
+        # create edge_vehicle { edge_id : [vehicle OBJECT]} to keep track of all the vehicles that on the same edge
         edge_vehicle = {}
         for vehicle in vehicles:
             if vehicle.current_edge not in self.connection_info.outgoing_edges_dict.keys():
@@ -211,81 +200,150 @@ class NathanPolicy(RouteController):
             else:
                 edge_vehicle[vehicle.current_edge] = list()
                 edge_vehicle[vehicle.current_edge].append(vehicle)
-
         # sort all vehicles by their deadline in edge_vehicles values 
         for edge, v_list in edge_vehicle.items():
             v_list.sort(key=lambda x: x.deadline)
 
-        # create a dict{current_edge : [out_edges]} 
-        # we create working_edges to get all the edges containing the vehicles we are working with
-        # then currentEdge_potentialEdges is the dict that points to all the potential edges from our current_edge
-        working_edges = list(edge_vehicle.keys())
-        currentEdge_potentialEdges = {}
-        for edge in working_edges:
-            currentEdge_potentialEdges[edge] = list()
 
-        for edge in working_edges:
-            for direction, out_edge in self.connection_info.outgoing_edges_dict[edge].items():
-                currentEdge_potentialEdges[edge].append(out_edge)
-        # done - now need to sort out_edge by their length and count
+        #create vehicle_decisionList {vehicle OBJECT : [decision list]} because instead of sending decision list to the
+        #local target we wait to check for congestion
+        vehicle_decisionList = {}
+        for edge, vehicles in edge_vehicle.items():
+            for vehicle in vehicles:
+                #instantiate a list of decision for each vehicle
+                vehicle_decisionList[vehicle] = list()
 
-        currentEdge_potentialEdges2 = {}
-        for edge in working_edges:
-            currentEdge_potentialEdges2[edge] = list()    
+        # --- start dijkstra ---
+        # apply dijkstra to each vehicle in edge_vehicle DS
+        for edge, vehicles in edge_vehicle.items():
+            #below is copied from dijkstra 
+            for vehicle in vehicles:
+                #print("---------------------------")
+                #print("{}: current - {}, destination - {}".format(vehicle.vehicle_id, vehicle.current_edge, vehicle.destination))
+                decision_list = []
+                unvisited = {edge: 1000000000 for edge in self.connection_info.edge_list} # map of unvisited edges {edge_id : distance}
+                visited = {} # map of visited edges
+                current_edge = vehicle.current_edge
+                #print("vehicle current_edge length:{}".format(self.connection_info.edge_length_dict[current_edge]))
 
-        for edge , out_edge in currentEdge_potentialEdges.items():
-            for outEdge in out_edge:
-                length = self.connection_info.edge_length_dict[outEdge]
-                count = self.connection_info.edge_vehicle_count[outEdge]
-                xample = Edge(outEdge, length, count)
-                currentEdge_potentialEdges2[edge].append(xample)
+                #print("\n------- getting into while loop ----------\n")
+                #vehicle is at the beginning of the edge so current edge length counts too
+                current_distance = self.connection_info.edge_length_dict[current_edge]
+                unvisited[current_edge] = current_distance
+                #stores shortest path to each edge using directions [edge_id]
+                path_lists = {edge: [] for edge in self.connection_info.edge_list} 
+                
+                while True:
+                    if current_edge not in self.connection_info.outgoing_edges_dict.keys():
+                        continue
+                    for direction, outgoing_edge in self.connection_info.outgoing_edges_dict[current_edge].items():
+                        #print("----- in for loop -----")
+                        if outgoing_edge not in unvisited:
+                            continue
+                        edge_length = self.connection_info.edge_length_dict[outgoing_edge]
+                        new_distance = current_distance + edge_length
+                        #univisited length are set to 100000 so this is almost always true 
+                        if new_distance < unvisited[outgoing_edge]:
+                            '''
+                            print("\nchecking direction:{} - edge:{}".format(direction, outgoing_edge))
+                            print("new distance < outgoing_edge length")
+                            print("new_distance = current_distance + edge_length = {}".format(new_distance))
+                            print("unvisited[outgoing_edge]: {}".format(unvisited[outgoing_edge]))
+                            '''
+                            #distance to get to this 'outgoing_edge' is now 'new_distance'
+                            unvisited[outgoing_edge] = new_distance
 
-        #testing
-        for edge, out_edge in currentEdge_potentialEdges2.items():
-            #confirmed sort by length, then count
-            out_edge.sort(key=lambda x: x.vehicle_count)
-            out_edge.sort(key=lambda x: x.length)
-            
+                            #path_list[current_edge] is initially set to empty array
+                            #so we assgin current_path to that empty array so we can modify it
+                            current_path = copy.deepcopy(path_lists[current_edge])
+                            
+                            #append this new shortest path to current_edge; example: path_list[E9] = [s , l , s , r] 
+                            #[s, l , s , r] is current_path
+                            current_path.append(direction)
+                            # reassign path_list[E9] to current path  [s,l,s,r]
+                            path_lists[outgoing_edge] = copy.deepcopy(current_path)
+                            #print("current path_list[{}]:{}".format(outgoing_edge, path_lists[outgoing_edge]))
+                            # NOT nathan print("{} + {} : {} + {}".format(path_lists[current_edge], direction, path_edge_lists[current_edge], outgoing_edge))
+                    #print("---- out for loop ----")
+                    visited[current_edge] = current_distance
+                    del unvisited[current_edge]
+                    if not unvisited:
+                        break
+                    if current_edge==vehicle.destination:
+                        break
+                    #update possible_edge every time we modify - del unvisited above
+                    possible_edges = [edge for edge in unvisited.items() if edge[1]]
 
-        for edge, vehicle_list in edge_vehicle.items():
-            for vehicle in vehicle_list:
-                hold = currentEdge_potentialEdges2[edge][0]
-                print("current vehicle id:{} - target_edge_id:{}".format(vehicle.vehicle_id, hold.id))
-                local_targets[vehicle.vehicle_id] = hold.id
-                currentEdge_potentialEdges2[edge].sort(key=lambda x: x.vehicle_count)
-                currentEdge_potentialEdges2[edge].sort(key=lambda x: x.length)
+                    #sort by x[1] meaning distance, and [0] meaning we take the smallest distance
+                    #and set our current_edge to that value
+                    current_edge, current_distance = sorted(possible_edges, key=lambda x: x[1])[0]
+                    '''
+                    print("\npossible edge:{}".format(possible_edges))
+                    print("\ncurrent_edge:{}".format(current_edge))
+                    print("current_edge length:{}".format(self.connection_info.edge_length_dict[current_edge]))
+                    print("current_distance:{}".format(current_distance))
+                    print("\n ---------- repeating while loop ----------------\n")
+                    #print('{}:{}------------'.format(current_edge, current_distance))
+                    '''
+                #current_edge = vehicle.current_edge - not NATHAN
+                #print("\nout of while true loop -----")
+                #print("\npath_list:{}".format(path_lists))
+                for direction in path_lists[vehicle.destination]:
+                    decision_list.append(direction)
+                #print("\ndecision_list:{}".format(decision_list))
+                vehicle_decisionList[vehicle] = decision_list
 
+        #----- outside dijkstra method------
+        # print("\n ---- testing vehicle and destination list:")
+        # for vehicle, decisionList in vehicle_decisionList.items():
+        #     print("vehicle:{} - decision_list:{}".format(vehicle.vehicle_id, decisionList))
 
+        '''
+        check if route vehicle is gonna take is full ( count > 2)
 
- 
-        # possible_choice = {}
-        # for direction, target_edge in self.connection_info.outgoing_edges_dict[current_edge].items():
-        #     possible_choice[target_edge] = direction
-        
-        # vehicle_count = {}
-        # for edge in possible_choice.keys():
-        #     count = self.connection_info.edge_vehicle_count[edge]
-        #     vehicle_count[edge]= count
-        #     print("Adding edge:{} - count:{}".format(edge,count))
+        if yes then create a dict outEdge_count {direction : count}
+        then sort by count on that dict 
+        then send the lowest one to decision list 
+        and append that to local target
 
+        if no, then append like dijkstra would have 
+        '''
+        for vehicle, decision_list in vehicle_decisionList.items():
+            if len(decision_list) == 0:
+                local_targets[vehicle.vehicle_id] = self.compute_local_target(decision_list, vehicle)
+                continue            
+            #the next 3 lines is used to check if vehicle next item is its destination then we dont need to do any work on it
+            direction_first_item_in_decision_list = decision_list[0]
+            edge_first_item_in_decision_list = self.connection_info.outgoing_edges_dict[vehicle.current_edge][direction_first_item_in_decision_list]
+            if edge_first_item_in_decision_list == vehicle.destination:
+                local_targets[vehicle.vehicle_id] = self.compute_local_target(decision_list, vehicle)
+                continue
 
+            #getting the next edge id 
+            nextEdge_id = self.connection_info.outgoing_edges_dict[vehicle.current_edge][decision_list[0]]
+            choices_available = len(self.connection_info.outgoing_edges_dict[vehicle.current_edge])
+            #if the next edge in the vehicle is too crowded (4) and there are other choices available, then we re-route the vehicle
+            if self.connection_info.edge_vehicle_count[nextEdge_id] >= 10 and choices_available > 1 and len(decision_list) > 4:
+                #gather all the choices available and send to the smallest count choice
+                outEdgeDirection_count = {}
+                #explore all the route available to the vehicle in outgoing_edges_dict
+                for direction, outEdge_id in self.connection_info.outgoing_edges_dict[vehicle.current_edge].items():
+                    #if the 'possible' edge that we are sending the vehicle to is a dead end (no routes available in outgoing_edge)
+                    # then we dont add (meaning if len is not 0 then we add)
+                    if len(self.connection_info.outgoing_edges_dict[outEdge_id].items()) != 0:
+                        outEdgeDirection_count[direction] = self.connection_info.edge_vehicle_count[outEdge_id]
+                outEdgeDirection_count = dict(sorted(outEdgeDirection_count.items(), key=lambda item: item[1]))
 
+                
+                # test sort
+                #print("\n-- testing outEdge_count sort:{}\n".format(outEdge_count))
+                new_list =  list()
+                new_list.append(list(outEdgeDirection_count.keys())[0])
+                # print("\nold_list:{}".format(decision_list))
+                # print("\nnew list:{}".format(new_list))
+                local_targets[vehicle.vehicle_id] = self.compute_local_target(new_list, vehicle)
 
-        # for vehicle in vehicles:
-        #     decision_list = []
-        #     current_edge = vehicle.current_edge
-        #     for choice in self.connection_info.outgoing_edges_dict[current_edge].keys():
-        #         decision_list.append(choice)
-
-        #     x = self.compute_local_target(decision_list, vehicle)
-        #     print("compute_local_target returns:{} - with decision list:{}".format(x, decision_list))
-        #     local_targets[vehicle.vehicle_id] = x                
-        #     # local_targets[vehicle.vehicle_id] = self.compute_local_target(decision_list, vehicle)
-
-        return local_targets    
-
-class Edge:
-    def __init__(self, id, length, vehicle_count):
-        self.id = id
-        self.length = length
-        self.vehicle_count = vehicle_count
+            else:
+                local_targets[vehicle.vehicle_id] = self.compute_local_target(decision_list, vehicle)
+        # print("------\nlocal_targets:{}".format(local_targets))
+        return local_targets 

@@ -23,7 +23,7 @@ import traci
 
 # use vehicle generation protocols to generate vehicle list
 def get_controlled_vehicles(route_filename, connection_info, \
-    num_controlled_vehicles=10, num_uncontrolled_vehicles=20, pattern = 1):
+    num_controlled_vehicles=10, num_uncontrolled_vehicles=20, pattern = 2):
     '''
     :param @route_filename <str>: the name of the route file to generate
     :param @connection_info <object>: an object that includes the map inforamtion
@@ -76,6 +76,7 @@ def run_simulation(scheduler, vehicles):
     print("Average timespan: {}, total vehicle number: {}".format(str(total_time/end_number),\
         str(end_number)))
     print(str(deadlines_missed) + ' deadlines missed.')
+    traci.close()
 
 if __name__ == "__main__":
     sumo_binary = checkBinary('sumo-gui')
@@ -93,11 +94,12 @@ if __name__ == "__main__":
     route_file_node = dom.getElementsByTagName('route-files')
     route_file_attr = route_file_node[0].attributes
     route_file = "./configurations/"+route_file_attr['value'].nodeValue
-    vehicles = get_controlled_vehicles(route_file, init_connection_info, 20, 10)
+    vehicles = get_controlled_vehicles(route_file, init_connection_info, 70, 40)
     #print the controlled vehicles generated
     for vid, v in vehicles.items():
         print("id: {}, destination: {}, start time:{}, deadline: {};".format(vid, \
             v.destination, v.start_time, v.deadline))
-    #test_dijkstra_policy(vehicles)
+    test_dijkstra_policy(vehicles)
     #test_random_policy(vehicles)
+    print("\n-----------\n")
     test_nathan_policy(vehicles)
